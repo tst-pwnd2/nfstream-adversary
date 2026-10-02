@@ -1,7 +1,11 @@
 DRAFT*
 
 */*~
+*~
+\#*\#
+.\#*
 
 __pycache__/*
 
+data
 data/*
