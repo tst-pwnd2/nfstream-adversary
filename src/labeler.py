@@ -20,6 +20,7 @@ class FlowLabel:
     dst_node: str
     src_container_type: str
     dst_container_type: str
+    tgen_type: str | None  # For TGEN flows: uppercase app type (e.g., "FTP", "MASTODON"); None for HCS/infra
 
 
 def label_flow(
@@ -55,6 +56,7 @@ def label_flow(
             dst_node=dst_info.name if dst_info else "unknown",
             src_container_type="hcs",
             dst_container_type=dst_info.container_type if dst_info else "unknown",
+            tgen_type=None,
         )
 
     if src_info and src_info.container_type == "tgen":
@@ -65,6 +67,7 @@ def label_flow(
             dst_node=dst_info.name if dst_info else "unknown",
             src_container_type="tgen",
             dst_container_type=dst_info.container_type if dst_info else "unknown",
+            tgen_type=src_info.channel_type.upper() if src_info.channel_type else None,
         )
 
     if dst_info and dst_info.is_hcs:
@@ -75,6 +78,7 @@ def label_flow(
             dst_node=dst_info.name,
             src_container_type=src_info.container_type if src_info else "unknown",
             dst_container_type="hcs",
+            tgen_type=None,
         )
 
     if dst_info and dst_info.container_type == "tgen":
@@ -85,6 +89,7 @@ def label_flow(
             dst_node=dst_info.name,
             src_container_type=src_info.container_type if src_info else "unknown",
             dst_container_type="tgen",
+            tgen_type=dst_info.channel_type.upper() if dst_info.channel_type else None,
         )
 
     # Neither endpoint is HCS or TGEN
@@ -95,6 +100,7 @@ def label_flow(
         dst_node=dst_info.name if dst_info else "unknown",
         src_container_type=src_info.container_type if src_info else "unknown",
         dst_container_type=dst_info.container_type if dst_info else "unknown",
+        tgen_type=None,
     )
 
 

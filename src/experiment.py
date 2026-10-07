@@ -165,6 +165,7 @@ def run_experiment(
     """
     channels = ["pooled"] if plan.get("pooled") else []
     channels += plan.get("channels", [])
+    tgen_types = plan.get("tgen_types", [])
     feature_subsets = plan.get("feature_subsets", FEATURE_SUBSET_NAMES)
     classifiers = plan.get("classifiers", CLASSIFIER_NAMES)
     n_splits = plan.get("n_splits", 5)
@@ -172,6 +173,9 @@ def run_experiment(
     top_n = plan.get("top_n_features", 20)
     skip_importance = plan.get("skip_importance", False)
     skip_plots = plan.get("skip_plots", False)
+    balanced = plan.get("balanced", False)
+
+    from .data_prep import get_available_tgen_types
 
     os.makedirs(results_dir, exist_ok=True)
     plots_dir = os.path.join(results_dir, "plots")
@@ -179,14 +183,58 @@ def run_experiment(
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(imp_dir, exist_ok=True)
 
+    # Build the list of evaluation targets
     results: list[ExperimentResult] = []
+    evaluation_targets = []
 
-    total = len(channels) * len(feature_subsets) * len(classifiers)
+    if plan.get("pooled"):
+        evaluation_targets.append(("pooled", None, None))
+
+    for ch in channels:
+        if ch == "pooled":
+            continue
+        evaluation_targets.append((ch, ch, None))
+
+    if tgen_types:
+        available_tgen = get_available_tgen_types(df)
+        for tt in tgen_types:
+            tt_resolved = None
+            for at in available_tgen:
+                if tt.lower() == at.lower():
+                    tt_resolved = at
+                    break
+            if not tt_resolved and (tt.upper() in available_tgen):
+                tt_resolved = tt.upper()
+            if not tt_resolved and (tt in available_tgen):
+                tt_resolved = tt
+            if tt_resolved:
+                evaluation_targets.append((f"TGEN_{tt_resolved}", None, tt_resolved))
+
+    # Handle paired HCS/TGEN evaluations
+    paired_evals = plan.get("paired_evaluations", [])
+    if not paired_evals:
+        # Try loading from default mapping file
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        mapping_file = os.path.join(repo_root, "tgen_hcs_map.json")
+        if os.path.exists(mapping_file):
+            with open(mapping_file) as f:
+                paired_evals = json.load(f)
+
+    for pair in paired_evals:
+        hcs_channel = pair.get("hcs_channel") or pair.get("hcs")
+        tgen_type = pair.get("tgen_type") or pair.get("tgen")
+        if hcs_channel and tgen_type:
+            # Normalize to strings for label generation
+            hcs_str = hcs_channel if isinstance(hcs_channel, str) else "+".join(hcs_channel)
+            tgen_str = tgen_type if isinstance(tgen_type, str) else "+".join(tgen_type)
+            target_label = f"HCS_{hcs_str}_vs_TGEN_{tgen_str}"
+            evaluation_targets.append((target_label, hcs_channel, tgen_type))
+
+    total = len(evaluation_targets) * len(feature_subsets) * len(classifiers)
     print(f"\nRunning {total} experiment combinations...")
 
-    for channel_key in channels:
-        channel_label = channel_key if channel_key != "pooled" else "pooled"
-        channel_arg = None if channel_key == "pooled" else channel_key
+    for target_label, channel_arg, tgen_type_arg in evaluation_targets:
+        channel_label = target_label
 
         print(f"\n{'='*60}")
         print(f"Channel: {channel_label}")
@@ -203,7 +251,9 @@ def run_experiment(
                 X, y, desc = prepare_dataset(
                     df, feature_columns,
                     channel=channel_arg,
+                    tgen_type=tgen_type_arg,
                     max_samples=max_samples,
+                    balanced=balanced,
                 )
                 print(desc)
 
@@ -261,6 +311,7 @@ def run_experiment(
                         df, channel_arg, clf_name,
                         feature_subset="full", top_n=top_n,
                         max_samples=max_samples,
+                        tgen_type=tgen_type_arg,
                     )
                     if not imp_df.empty:
                         imp_path = os.path.join(imp_dir, f"{key}.csv")

@@ -218,6 +218,19 @@ def cmd_experiment(args):
         plan["skip_importance"] = True
     if args.no_plots:
         plan["skip_plots"] = True
+    if args.balanced:
+        plan["balanced"] = True
+    if args.tgen_types:
+        plan["tgen_types"] = args.tgen_types.split(",")
+    if args.paired:
+        pairs = []
+        for pair_str in args.paired.split(","):
+            parts = pair_str.split(":")
+            if len(parts) == 2:
+                hcs_val = parts[0].split("+") if "+" in parts[0] else parts[0]
+                tgen_val = parts[1].split("+") if "+" in parts[1] else parts[1]
+                pairs.append({"hcs": hcs_val, "tgen": tgen_val})
+        plan["paired_evaluations"] = pairs
 
     scenario_name = plan.get("scenario", args.scenario or "scenario1-1")
     parquet_path = os.path.join(output_dir, scenario_name, "flows.parquet")
@@ -372,6 +385,21 @@ def main():
         type=int,
         default=None,
         help="Override max samples (default: 50000)",
+    )
+    exp_parser.add_argument(
+        "--balanced",
+        action="store_true",
+        help="Balance classes by downsampling majority to match minority",
+    )
+    exp_parser.add_argument(
+        "--tgen-types",
+        default=None,
+        help="Comma-separated TGEN types to evaluate (e.g., FTP,IRC)",
+    )
+    exp_parser.add_argument(
+        "--paired",
+        default=None,
+        help="Comma-separated HCS:TGEN pairs (e.g., sky:MINIO,racetunnel:IRC). Use + for lists (e.g., sky+mastodon:MINIO+IRC)",
     )
 
     args = parser.parse_args()

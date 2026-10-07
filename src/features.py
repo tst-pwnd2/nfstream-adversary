@@ -86,8 +86,6 @@ def _directional_columns() -> list[str]:
     return cols
 
 
-# Protocol info columns
-PROTOCOL_COLUMNS = ["protocol", "ip_version", "vlan_id", "tunnel_id"]
 
 # All transport-layer feature columns (sorted for deterministic ordering)
 ALL_FEATURE_COLUMNS = sorted(
@@ -96,7 +94,6 @@ ALL_FEATURE_COLUMNS = sorted(
     + _interarrival_columns()
     + _count_columns()
     + _duration_columns()
-    + PROTOCOL_COLUMNS
 )
 
 
@@ -127,7 +124,6 @@ def _get_no_directional_subset() -> list[str]:
         [f"bidirectional_{c}" for c in COUNTS + DURATIONS]
         + [f"bidirectional_{s}" for s in PS_STATS + PIAT_STATS]
         + [f"bidirectional_{f}_packets" for f in FLAGS]
-        + PROTOCOL_COLUMNS
     )
 
 
@@ -147,20 +143,18 @@ def _get_minimal_subset() -> list[str]:
     return sorted(
         _duration_columns()
         + _count_columns()
-        + PROTOCOL_COLUMNS
     )
 
 
 def _get_duration_only_subset() -> list[str]:
     """Only duration columns + protocol info."""
-    return sorted(_duration_columns() + PROTOCOL_COLUMNS)
+    return sorted(_duration_columns())
 
 
 def _get_packet_counts_only_subset() -> list[str]:
     """Only packet count columns + protocol info."""
     return sorted(
         [f"{d}_packets" for d in DIRECTIONS]
-        + PROTOCOL_COLUMNS
     )
 
 
@@ -169,18 +163,17 @@ def _get_statistical_only_subset() -> list[str]:
     return sorted(
         _packet_size_columns()
         + _interarrival_columns()
-        + PROTOCOL_COLUMNS
     )
 
 
 def _get_timing_only_subset() -> list[str]:
     """Only inter-arrival time (piat) features + protocol info."""
-    return sorted(_interarrival_columns() + PROTOCOL_COLUMNS)
+    return sorted(_interarrival_columns())
 
 
 def _get_sizes_only_subset() -> list[str]:
     """Only packet size (ps) features + protocol info."""
-    return sorted(_packet_size_columns() + PROTOCOL_COLUMNS)
+    return sorted(_packet_size_columns())
 
 
 # All named subsets available

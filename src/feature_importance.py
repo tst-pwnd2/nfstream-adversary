@@ -23,6 +23,7 @@ def extract_feature_importance(
     feature_subset: str = "full",
     top_n: int = 20,
     max_samples: int | None = None,
+    tgen_type: str | None = None,
 ) -> pd.DataFrame:
     """Train a classifier on the full dataset and extract feature importance.
 
@@ -33,13 +34,17 @@ def extract_feature_importance(
         feature_subset: Feature subset to use (default: full).
         top_n: Number of top features to return.
         max_samples: If set, cap total samples via stratified subsampling.
+        tgen_type: TGEN type name for per-TGEN-type analysis.
 
     Returns:
         DataFrame with columns: feature, importance, rank.
         Sorted by importance descending.
     """
     feature_columns = get_feature_columns(list(df.columns), feature_subset)
-    X, y, _ = prepare_dataset(df, feature_columns, channel=channel, max_samples=max_samples)
+    X, y, _ = prepare_dataset(
+        df, feature_columns, channel=channel,
+        tgen_type=tgen_type, max_samples=max_samples
+    )
 
     if len(X) == 0 or y.nunique() < 2:
         return pd.DataFrame(columns=["feature", "importance", "rank"])

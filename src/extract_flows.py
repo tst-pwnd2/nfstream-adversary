@@ -91,6 +91,7 @@ def _apply_labels(
     df["dst_container_type"] = [l.dst_container_type for l in labels]
     df["is_hcs"] = [l.is_hcs for l in labels]
     df["channel_type"] = [l.channel_type for l in labels]
+    df["tgen_type"] = [l.tgen_type for l in labels]
 
     # Combined label string: "hcs_racetunnel" or "tgen_mastodon"
     flow_labels = []
