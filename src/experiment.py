@@ -183,32 +183,10 @@ def run_experiment(
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(imp_dir, exist_ok=True)
 
-    # Build the list of evaluation targets
+    # Build the list of evaluation targets - ONLY use explicit paired_evaluations
+    # Do NOT include channels/tgen_types/pooled by default
     results: list[ExperimentResult] = []
     evaluation_targets = []
-
-    if plan.get("pooled"):
-        evaluation_targets.append(("pooled", None, None))
-
-    for ch in channels:
-        if ch == "pooled":
-            continue
-        evaluation_targets.append((ch, ch, None))
-
-    if tgen_types:
-        available_tgen = get_available_tgen_types(df)
-        for tt in tgen_types:
-            tt_resolved = None
-            for at in available_tgen:
-                if tt.lower() == at.lower():
-                    tt_resolved = at
-                    break
-            if not tt_resolved and (tt.upper() in available_tgen):
-                tt_resolved = tt.upper()
-            if not tt_resolved and (tt in available_tgen):
-                tt_resolved = tt
-            if tt_resolved:
-                evaluation_targets.append((f"TGEN_{tt_resolved}", None, tt_resolved))
 
     # Handle paired HCS/TGEN evaluations
     paired_evals = plan.get("paired_evaluations", [])
@@ -301,34 +279,35 @@ def run_experiment(
                         f"± {result.std_auroc:.4f} (folds: {n_folds})"
                     )
 
-        # Feature importance for this channel (using full subset)
+        # Feature importance for each feature subset for this target
         if not skip_importance:
             print(f"\n  Computing feature importance for {channel_label}...")
             for clf_name in classifiers:
-                key = f"{channel_label}_{clf_name}"
-                try:
-                    imp_df = extract_feature_importance(
-                        df, channel_arg, clf_name,
-                        feature_subset="full", top_n=top_n,
-                        max_samples=max_samples,
-                        tgen_type=tgen_type_arg,
-                    )
-                    if not imp_df.empty:
-                        imp_path = os.path.join(imp_dir, f"{key}.csv")
-                        imp_df.to_csv(imp_path, index=False)
-                        print(f"    Saved: {imp_path}")
+                for subset_name in feature_subsets:
+                    key = f"{channel_label}_{subset_name}_{clf_name}"
+                    try:
+                        imp_df = extract_feature_importance(
+                            df, channel_arg, clf_name,
+                            feature_subset=subset_name, top_n=top_n,
+                            max_samples=max_samples,
+                            tgen_type=tgen_type_arg,
+                        )
+                        if not imp_df.empty:
+                            imp_path = os.path.join(imp_dir, f"{key}.csv")
+                            imp_df.to_csv(imp_path, index=False)
+                            print(f"    Saved: {imp_path}")
 
-                        # Plot feature importance
-                        if not skip_plots:
-                            plot_path = os.path.join(
-                                plots_dir,
-                                f"{key}_feature_importance.png",
-                            )
-                            plot_feature_importance(
-                                imp_df, channel_label, clf_name, "full", plot_path,
-                            )
-                except Exception as e:
-                    print(f"    Failed {key}: {e}")
+                            # Plot feature importance
+                            if not skip_plots:
+                                plot_path = os.path.join(
+                                    plots_dir,
+                                    f"{key}_feature_importance.png",
+                                )
+                                plot_feature_importance(
+                                    imp_df, channel_label, clf_name, subset_name, plot_path,
+                                )
+                    except Exception as e:
+                        print(f"    Failed {key}: {e}")
 
         if not skip_plots:
             channel_results = [

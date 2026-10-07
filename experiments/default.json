@@ -1,14 +1,18 @@
 {
   "name": "default_experiment",
   "description": "Full analysis: all channels, TGEN types, paired evaluations, comprehensive feature ablation",
-  "pooled": true,
+  "pooled": false,
   "channels": ["racetunnel", "sky", "obfs", "iodine", "mastodon"],
   "tgen_types": ["FTP", "IRC", "MASTODON", "MINIO", "GORILLA"],
   "paired_evaluations": [
     {"hcs": "racetunnel", "tgen": ["GORILLA"]},
     {"hcs": "sky", "tgen": ["MINIO"]},
     {"hcs": "obfs", "tgen": ["FTP"]},
-    {"hcs": "mastodon", "tgen": ["MASTODON"]}
+    {"hcs": "mastodon", "tgen": ["MASTODON"]},
+    {"hcs": "racetunnel", "tgen": ["IRC", "GORILLA", "MASTODON", "MINIO", "FTP"]},
+    {"hcs": "obfs", "tgen": ["IRC", "GORILLA", "MASTODON", "MINIO", "FTP"]},
+    {"hcs": "mastodon", "tgen": ["IRC", "GORILLA", "MASTODON", "MINIO", "FTP"]},
+    {"hcs": "sky", "tgen": ["IRC", "GORILLA", "MASTODON", "MINIO", "FTP"]}
   ],
   "feature_subsets": [
     "full",
@@ -19,5 +23,5 @@
   "classifiers": ["logreg", "random_forest", "gradient_boosting"],
   "n_splits": 5,
   "max_samples": 50000,
-  "top_n_features": 20
+  "top_n_features": 5
 }

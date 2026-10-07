@@ -1,6 +1,7 @@
 [
-  {"hcs": "sky", "tgen": "MINIO"},
-  {"hcs": "racetunnel", "tgen": "GORILLA"},
-  {"hcs": "obfs", "tgen": "FTP"},
-  {"hcs": "mastodon", "tgen": "MASTODON"}
+  {"hcs": ["sky"], "tgen": ["MINIO"]},
+  {"hcs": "racetunnel", "tgen": ["GORILLA"]},
+  {"hcs": ["sky", "racetunnel"], "tgen": ["MINIO"]},
+  {"hcs": ["obfs"], "tgen": ["FTP"]},
+  {"hcs": ["mastodon"], "tgen": ["MASTODON"]}
 ]
