@@ -22,12 +22,14 @@ from .pcap_discovery import PCAPGroup, discover_pcap_groups
 def extract_flows_from_group(
     group: PCAPGroup,
     ip_lookup: dict[str, NetworkNodeInfo],
+    active_timeout: int | None = None,
 ) -> pd.DataFrame:
     """Extract flows from a single pcap group and apply labels.
 
     Args:
         group: PCAPGroup containing pcap paths and network name.
         ip_lookup: IP-to-node lookup from load_network_map().
+        active_timeout: Optional nfstream active_timeout override (seconds).
 
     Returns:
         DataFrame with nfstream features plus labeling columns.
@@ -37,11 +39,16 @@ def extract_flows_from_group(
             "nfstream is not installed. Install requirements: pip install -r requirements.txt"
         )
 
+    streamer_kwargs = {}
+    if active_timeout is not None:
+        streamer_kwargs["active_timeout"] = active_timeout
+
     try:
         streamer = NFStreamer(
             source=group.pcap_paths,
             statistical_analysis=True,
             n_dissections=20,
+            **streamer_kwargs,
         )
         df = streamer.to_pandas()
     except Exception as e:
@@ -136,12 +143,17 @@ def _filter_flows(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def process_scenario(scenario_dir: str, output_dir: str) -> pd.DataFrame:
+def process_scenario(
+    scenario_dir: str,
+    output_dir: str,
+    active_timeout: int | None = None,
+) -> pd.DataFrame:
     """Process a single scenario: extract flows and save outputs.
 
     Args:
         scenario_dir: Path to the scenario directory under data/.
         output_dir: Root output directory for processed files.
+        active_timeout: Optional nfstream active_timeout override (seconds).
 
     Returns:
         Concatenated DataFrame of all labeled flows for the scenario.
@@ -164,7 +176,7 @@ def process_scenario(scenario_dir: str, output_dir: str) -> pd.DataFrame:
             f"  Extracting flows from {group.source_dir} "
             f"({len(group.pcap_paths)} files)..."
         )
-        group_df = extract_flows_from_group(group, ip_lookup)
+        group_df = extract_flows_from_group(group, ip_lookup, active_timeout=active_timeout)
         if not group_df.empty:
             flow_count = len(group_df)
             print(f"    Extracted {flow_count} labeled flows")
@@ -180,8 +192,12 @@ def process_scenario(scenario_dir: str, output_dir: str) -> pd.DataFrame:
     combined_df = pd.concat(all_dfs, ignore_index=True)
     print(f"  Total: {len(combined_df)} flows")
 
-    # Save outputs
-    scenario_output_dir = os.path.join(output_dir, scenario_name)
+    # Save outputs. Suffix the folder with the timeout so distinct
+    # active_timeout runs don't overwrite each other's cached flows.
+    output_scenario_name = scenario_name
+    if active_timeout is not None:
+        output_scenario_name = f"{scenario_name}_timeout{active_timeout}"
+    scenario_output_dir = os.path.join(output_dir, output_scenario_name)
     os.makedirs(scenario_output_dir, exist_ok=True)
 
     parquet_path = os.path.join(scenario_output_dir, "flows.parquet")
@@ -196,12 +212,17 @@ def process_scenario(scenario_dir: str, output_dir: str) -> pd.DataFrame:
     return combined_df
 
 
-def process_all_scenarios(data_dir: str, output_dir: str) -> pd.DataFrame:
+def process_all_scenarios(
+    data_dir: str,
+    output_dir: str,
+    active_timeout: int | None = None,
+) -> pd.DataFrame:
     """Process all scenario directories under data_dir.
 
     Args:
         data_dir: Path to the data directory containing scenario subdirectories.
         output_dir: Root output directory for processed files.
+        active_timeout: Optional nfstream active_timeout override (seconds).
 
     Returns:
         Concatenated DataFrame of all labeled flows across all scenarios.
@@ -219,7 +240,7 @@ def process_all_scenarios(data_dir: str, output_dir: str) -> pd.DataFrame:
     all_scenario_dfs: list[pd.DataFrame] = []
     for scenario in scenarios:
         scenario_path = os.path.join(data_dir, scenario)
-        df = process_scenario(scenario_path, output_dir)
+        df = process_scenario(scenario_path, output_dir, active_timeout=active_timeout)
         if not df.empty:
             all_scenario_dfs.append(df)
 

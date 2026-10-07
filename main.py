@@ -37,10 +37,10 @@ def cmd_extract(args):
             print(f"Error: scenario directory not found: {scenario_path}", file=sys.stderr)
             sys.exit(1)
         from src.extract_flows import process_scenario
-        df = process_scenario(scenario_path, output_dir)
+        df = process_scenario(scenario_path, output_dir, active_timeout=args.nfstream_timeout)
     else:
         from src.extract_flows import process_all_scenarios
-        df = process_all_scenarios(data_dir, output_dir)
+        df = process_all_scenarios(data_dir, output_dir, active_timeout=args.nfstream_timeout)
 
     if df.empty:
         print("\nNo flows extracted.")
@@ -318,6 +318,12 @@ def main():
         "--scenario",
         default=None,
         help="Process a single scenario by name (default: all scenarios)",
+    )
+    parser.add_argument(
+        "--nfstream-timeout",
+        type=int,
+        default=None,
+        help="Override nfstream active_timeout (seconds) for all NFStreamer invocations",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Sub-command")
