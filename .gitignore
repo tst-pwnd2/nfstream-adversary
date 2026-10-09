@@ -10,3 +10,16 @@ __pycache__/*
 data
 data/*
 processed
+
+# Kilo tool config
+.kilo/
+
+# Experiment configs
+experiments/aggressive.json
+experiments/reduced_featuresets.json
+
+# nfstream output CSVs
+nfstream-*.csv
+
+# Project artifacts
+plan.md

@@ -18,6 +18,71 @@ from .labeler import FlowLabel, is_dns_node_traffic, is_dns_traffic, label_flow
 from .nm_loader import NetworkNodeInfo, load_network_map
 from .pcap_discovery import PCAPGroup, discover_pcap_groups
 
+# Columns that encode bidirectional direction-agnostic statistics.
+# These never need swapping because they aggregate both directions.
+_BIDIRECTIONAL_COLUMNS = {
+    "bidirectional_first_seen_ms",
+    "bidirectional_last_seen_ms",
+    "bidirectional_duration_ms",
+    "bidirectional_packets",
+    "bidirectional_bytes",
+    "bidirectional_min_ps",
+    "bidirectional_mean_ps",
+    "bidirectional_stddev_ps",
+    "bidirectional_max_ps",
+    "bidirectional_min_piat_ms",
+    "bidirectional_mean_piat_ms",
+    "bidirectional_stddev_piat_ms",
+    "bidirectional_max_piat_ms",
+    "bidirectional_syn_packets",
+    "bidirectional_cwr_packets",
+    "bidirectional_ece_packets",
+    "bidirectional_urg_packets",
+    "bidirectional_ack_packets",
+    "bidirectional_psh_packets",
+    "bidirectional_rst_packets",
+    "bidirectional_fin_packets",
+    "application_name",
+    "application_category_name",
+    "application_is_guessed",
+    "application_confidence",
+    "requested_server_name",
+    "client_fingerprint",
+    "server_fingerprint",
+    "user_agent",
+    "content_type",
+}
+
+# Columns that represent directional flow statistics. src2dst_* tracks
+# traffic from src_ip to dst_ip; dst2src_* tracks traffic from dst_ip to
+# src_ip. When a flow's directionality is reversed (e.g., by nfstream's
+# active_timeout creating a new flow from a server-side packet), these
+# pairs must be swapped to maintain consistent directionality.
+_SRC2DST_PREFIX = "src2dst_"
+_DST2SRC_PREFIX = "dst2src_"
+
+
+def _get_directional_stat_columns(df: pd.DataFrame) -> list[tuple[str, str]]:
+    """Find pairs of (src2dst_, dst2src_) columns in the DataFrame.
+
+    Args:
+        df: DataFrame with nfstream flow columns.
+
+    Returns:
+        List of (src2dst_col, dst2src_col) pairs that exist in the DataFrame.
+    """
+    pairs = []
+    src2dst_cols = [
+        c for c in df.columns
+        if c.startswith(_SRC2DST_PREFIX) and c not in _BIDIRECTIONAL_COLUMNS
+    ]
+    for col in src2dst_cols:
+        suffix = col[len(_SRC2DST_PREFIX):]
+        dst2src_col = f"{_DST2SRC_PREFIX}{suffix}"
+        if dst2src_col in df.columns:
+            pairs.append((col, dst2src_col))
+    return pairs
+
 
 def extract_flows_from_group(
     group: PCAPGroup,
@@ -68,6 +133,8 @@ def extract_flows_from_group(
     df = _apply_labels(df, ip_lookup)
 
     df = _filter_flows(df)
+
+    df = _correct_flow_directionality(df, ip_lookup)
 
     # Add metadata columns
     df["network_name"] = group.network_name
@@ -143,6 +210,126 @@ def _filter_flows(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _correct_flow_directionality(
+    df: pd.DataFrame,
+    ip_lookup: dict[str, NetworkNodeInfo],
+) -> pd.DataFrame:
+    """Correct reversed flow directionality caused by active_timeout.
+
+    When nfstream's active_timeout prematurely expires a flow, the next
+    packet may come from the server side. nfstream's direction-agnostic
+    flow key means the new flow instance's src_ip/dst_ip are set based
+    on that packet's direction — which can be the reverse of the original
+    flow. This causes:
+
+    - HCS/TGEN endpoint appearing as dst_ip instead of src_ip
+    - Directional statistics (src2dst_*/dst2src_*) being inverted
+    - src_node/dst_node being swapped
+
+    This function detects such reversed flows and swaps all directional
+    fields so that HCS nodes are always the src (client) and TGEN nodes
+    are the source initiator, matching the convention of non-split flows.
+
+    Args:
+        df: DataFrame with labeled flows (must have src_ip, dst_ip,
+            is_hcs, src_node, dst_node columns).
+        ip_lookup: IP-to-node lookup from load_network_map().
+
+    Returns:
+        DataFrame with corrected directionality for reversed flows.
+    """
+    if df.empty:
+        return df
+
+    df = df.copy()
+
+    # Precompute the set of HCS IPs for fast lookup
+    hcs_ips = {ip for ip, info in ip_lookup.items() if info.is_hcs}
+    tgen_ips = {ip for ip, info in ip_lookup.items() if info.container_type == "tgen"}
+
+    # Identify flows where the HCS node is the dst (should be src).
+    # HCS nodes are always clients (they initiate traffic toward servers).
+    reversed_mask = pd.Series(False, index=df.index)
+
+    src_is_hcs = df["src_ip"].isin(hcs_ips)
+    dst_is_hcs = df["dst_ip"].isin(hcs_ips)
+
+    # HCS flows: HCS should be src. If HCS is dst and src is not HCS, reversed.
+    reversed_mask |= (dst_is_hcs & ~src_is_hcs) & (df["is_hcs"] == True)
+
+    # TGEN flows: TGEN initiator should be src. If TGEN is dst and src is not
+    # TGEN, the flow may be reversed. However, we can only safely correct this
+    # when we know the TGEN node should be the source. In this test scenario,
+    # TGEN traffic generators always initiate, so we apply the same logic.
+    src_is_tgen = df["src_ip"].isin(tgen_ips)
+    dst_is_tgen = df["dst_ip"].isin(tgen_ips)
+    reversed_mask |= (dst_is_tgen & ~src_is_tgen) & (df["is_hcs"] == False)
+
+    n_reversed = int(reversed_mask.sum())
+    if n_reversed == 0:
+        return df
+
+    print(f"  Correcting {n_reversed} reversed flow(s) from active_timeout split")
+
+    _swap_columns = _get_directional_stat_columns(df)
+
+    for idx in df.index[reversed_mask]:
+        # Swap src_ip <-> dst_ip
+        src_ip_val = df.at[idx, "src_ip"]
+        dst_ip_val = df.at[idx, "dst_ip"]
+        df.at[idx, "src_ip"] = dst_ip_val
+        df.at[idx, "dst_ip"] = src_ip_val
+
+        # Swap src_port <-> dst_port
+        if "src_port" in df.columns and "dst_port" in df.columns:
+            src_port_val = df.at[idx, "src_port"]
+            dst_port_val = df.at[idx, "dst_port"]
+            df.at[idx, "src_port"] = dst_port_val
+            df.at[idx, "dst_port"] = src_port_val
+
+        # Swap src_mac <-> dst_mac
+        if "src_mac" in df.columns and "dst_mac" in df.columns:
+            src_mac_val = df.at[idx, "src_mac"]
+            dst_mac_val = df.at[idx, "dst_mac"]
+            df.at[idx, "src_mac"] = dst_mac_val
+            df.at[idx, "dst_mac"] = src_mac_val
+
+        # Swap src_oui <-> dst_oui
+        if "src_oui" in df.columns and "dst_oui" in df.columns:
+            src_oui_val = df.at[idx, "src_oui"]
+            dst_oui_val = df.at[idx, "dst_oui"]
+            df.at[idx, "src_oui"] = dst_oui_val
+            df.at[idx, "dst_oui"] = src_oui_val
+
+        # Swap src2dst_* <-> dst2src_* directional statistics
+        for src2dst_col, dst2src_col in _swap_columns:
+            src2dst_val = df.at[idx, src2dst_col]
+            dst2src_val = df.at[idx, dst2src_col]
+            df.at[idx, src2dst_col] = dst2src_val
+            df.at[idx, dst2src_col] = src2dst_val
+
+        # Swap label-derived columns
+        if "src_node" in df.columns and "dst_node" in df.columns:
+            src_node_val = df.at[idx, "src_node"]
+            dst_node_val = df.at[idx, "dst_node"]
+            df.at[idx, "src_node"] = dst_node_val
+            df.at[idx, "dst_node"] = src_node_val
+
+        if "src_container_type" in df.columns and "dst_container_type" in df.columns:
+            src_ct_val = df.at[idx, "src_container_type"]
+            dst_ct_val = df.at[idx, "dst_container_type"]
+            df.at[idx, "src_container_type"] = dst_ct_val
+            df.at[idx, "dst_container_type"] = src_ct_val
+
+        # Recompute flow_label since src_node/dst_node changed
+        # The is_hcs, channel_type, and tgen_type fields are direction-agnostic
+        # and don't need to change, but flow_label is derived from them so it
+        # should already be correct. However, src_node and dst_node affect
+        # nothing in flow_label, so no recompute needed.
+
+    return df
+
+
 def process_scenario(
     scenario_dir: str,
     output_dir: str,
@@ -182,7 +369,7 @@ def process_scenario(
             print(f"    Extracted {flow_count} labeled flows")
             all_dfs.append(group_df)
         else:
-            print(f"    No flows extracted")
+            print("    No flows extracted")
 
     if not all_dfs:
         print(f"  WARNING: No flows extracted for scenario {scenario_name}")
